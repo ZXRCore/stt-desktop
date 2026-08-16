@@ -53,7 +53,9 @@ jobs:
 
       - name: Install frontend deps
         working-directory: frontend
-        run: npm ci
+        run: |
+          npm install -g npm@11
+          npm ci
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
