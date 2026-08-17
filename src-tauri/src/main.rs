@@ -6,6 +6,12 @@
 // Vue-webview через fetch() на http://127.0.0.1:<port> — Rust здесь только
 // управляет жизненным циклом sidecar-процесса.
 
+// Без этого xstt-desktop.exe компилируется с PE-subsystem CONSOLE (дефолт
+// для Rust-бинарников) — Windows Terminal привязывает к нему консольное
+// окно при каждом запуске, отдельное от самого GUI-окна приложения.
+// Debug-сборка сохраняет консоль для удобства (видно println!/panic!).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::io::Write;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -174,7 +180,23 @@ fn main() {
                 let state = window.state::<SidecarState>();
                 let child = state.child.lock().unwrap().take();
                 if let Some(child) = child {
-                    let _ = child.kill();
+                    // child.kill() убивает только сам sidecar.exe, но не его
+                    // дочерний GPU-подпроцесс (python-cuda/python.exe,
+                    // спавленный sidecar'ом через subprocess.Popen для CUDA-
+                    // инференса) — тот остаётся осиротевшим и продолжает
+                    // есть память. taskkill /T убивает всё дерево по PID.
+                    let pid = child.pid();
+                    #[cfg(target_os = "windows")]
+                    {
+                        drop(child);
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/T", "/F", "/PID", &pid.to_string()])
+                            .output();
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        let _ = child.kill();
+                    }
                 }
             }
         })
