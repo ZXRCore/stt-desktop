@@ -17,7 +17,7 @@
     "security": {
       "csp": {
         "default-src": "'self' 'unsafe-inline'",
-        "connect-src": "'self' http://127.0.0.1:* http://localhost:* ipc: http://ipc.localhost"
+        "connect-src": "'self' https://stt.zxr.sh http://127.0.0.1:* http://localhost:* ipc: http://ipc.localhost"
       }
     }
   },

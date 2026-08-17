@@ -6,6 +6,7 @@
 // Vue-webview через fetch() на http://127.0.0.1:<port> — Rust здесь только
 // управляет жизненным циклом sidecar-процесса.
 
+use std::io::Write;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -16,6 +17,21 @@ use tauri_plugin_shell::ShellExt;
 struct SidecarState {
     port: Mutex<Option<u16>>,
     child: Mutex<Option<CommandChild>>,
+}
+
+#[tauri::command]
+fn read_sidecar_log(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("sidecar.log");
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
 }
 
 #[tauri::command]
@@ -99,21 +115,52 @@ fn main() {
             let state = handle.state::<SidecarState>();
             *state.child.lock().unwrap() = Some(child);
 
+            // sidecar.exe собран с console=False (не мелькает окно консоли
+            // при старте приложения) — весь его stdout/stderr пишем в файл
+            // вместо консоли, перезаписывая при каждом запуске (только
+            // последняя сессия, не накапливается бесконечно). Открывается
+            // скрытой комбинацией Ctrl+Shift+Z+X+R в UI (см. useSidecarLog.ts).
+            let log_path = app
+                .path()
+                .app_data_dir()
+                .expect("не удалось определить директорию данных приложения")
+                .join("sidecar.log");
+            let log_file = std::fs::File::create(&log_path).ok();
+            let log_file = std::sync::Arc::new(Mutex::new(log_file));
+
             let handle_for_task = handle.clone();
+            let log_file_for_task = log_file.clone();
             tauri::async_runtime::spawn(async move {
                 use tauri_plugin_shell::process::CommandEvent;
 
+                let mut port_found = false;
+
                 while let Some(event) = rx.recv().await {
-                    if let CommandEvent::Stdout(line) = event {
-                        let text = String::from_utf8_lossy(&line);
+                    let line = match &event {
+                        CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => Some(line),
+                        _ => None,
+                    };
+                    let Some(line) = line else { continue };
+
+                    if let Some(f) = log_file_for_task.lock().unwrap().as_mut() {
+                        let _ = f.write_all(line);
+                        let _ = f.write_all(b"\n");
+                        let _ = f.flush();
+                    }
+
+                    if port_found {
+                        continue;
+                    }
+                    if let CommandEvent::Stdout(_) = event {
+                        let text = String::from_utf8_lossy(line);
                         if let Some(port_str) = text.trim().strip_prefix("SIDECAR_PORT=") {
                             if let Ok(port) = port_str.trim().parse::<u16>() {
+                                port_found = true;
                                 let ready = wait_for_health(port).await;
                                 if ready {
                                     let state = handle_for_task.state::<SidecarState>();
                                     *state.port.lock().unwrap() = Some(port);
                                 }
-                                break;
                             }
                         }
                     }
@@ -131,7 +178,7 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![get_sidecar_port])
+        .invoke_handler(tauri::generate_handler![get_sidecar_port, read_sidecar_log, open_devtools])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
