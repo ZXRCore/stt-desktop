@@ -23,15 +23,12 @@ use tauri_plugin_shell::ShellExt;
 struct SidecarState {
     port: Mutex<Option<u16>>,
     child: Mutex<Option<CommandChild>>,
+    log_path: Mutex<Option<std::path::PathBuf>>,
 }
 
 #[tauri::command]
-fn read_sidecar_log(app: tauri::AppHandle) -> Result<String, String> {
-    let path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("sidecar.log");
+fn read_sidecar_log(state: State<'_, SidecarState>) -> Result<String, String> {
+    let path = state.log_path.lock().unwrap().clone().ok_or("лог ещё не создан")?;
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
@@ -87,6 +84,7 @@ fn main() {
         .manage(SidecarState {
             port: Mutex::new(None),
             child: Mutex::new(None),
+            log_path: Mutex::new(None),
         })
         .setup(|app| {
             let handle = app.handle().clone();
@@ -158,8 +156,10 @@ fn main() {
             // sidecar.exe собран с console=False (не мелькает окно консоли
             // при старте приложения) — весь его stdout/stderr пишем в файл
             // вместо консоли, перезаписывая при каждом запуске (только
-            // последняя сессия, не накапливается бесконечно). Открывается
-            // скрытой комбинацией Ctrl+Shift+Z+X+R в UI (см. useSidecarLog.ts).
+            // последняя сессия, не накапливается бесконечно, файл удаляется
+            // при закрытии приложения — см. on_window_event). Модалка в UI
+            // (Ctrl+Shift+Z+X+R) читает файл при открытии и дальше слушает
+            // sidecar-log-line событие для дозаписи в реальном времени.
             let log_path = app
                 .path()
                 .app_data_dir()
@@ -167,10 +167,12 @@ fn main() {
                 .join("sidecar.log");
             let log_file = std::fs::File::create(&log_path).ok();
             let log_file = std::sync::Arc::new(Mutex::new(log_file));
+            *handle.state::<SidecarState>().log_path.lock().unwrap() = Some(log_path);
 
             let handle_for_task = handle.clone();
             let log_file_for_task = log_file.clone();
             tauri::async_runtime::spawn(async move {
+                use tauri::Emitter;
                 use tauri_plugin_shell::process::CommandEvent;
 
                 let mut port_found = false;
@@ -187,6 +189,7 @@ fn main() {
                         let _ = f.write_all(b"\n");
                         let _ = f.flush();
                     }
+                    let _ = handle_for_task.emit("sidecar-log-line", String::from_utf8_lossy(line).to_string());
 
                     if port_found {
                         continue;
@@ -231,6 +234,15 @@ fn main() {
                     {
                         let _ = child.kill();
                     }
+                }
+
+                // Лог — только для текущей сессии (пользователь просил не
+                // хранить его между запусками): удаляем при закрытии, не
+                // при следующем старте, иначе краш до этой точки оставил бы
+                // файл валяться — не критично, но чище удалять именно тут.
+                let log_path = state.log_path.lock().unwrap().take();
+                if let Some(path) = log_path {
+                    let _ = std::fs::remove_file(path);
                 }
             }
         })
