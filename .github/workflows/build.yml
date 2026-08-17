@@ -57,6 +57,10 @@ jobs:
           npm install -g npm@11
           npm ci
 
+      - name: Generate desktop static frontend
+        working-directory: frontend
+        run: npm run generate:desktop
+
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
 

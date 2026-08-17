@@ -4,8 +4,7 @@
   "version": "1.0.0",
   "identifier": "sh.zxr.0xstt",
   "build": {
-    "frontendDist": "../frontend/desktop-build/.output/public",
-    "beforeBuildCommand": "cd ../frontend && npm run generate:desktop"
+    "frontendDist": "../frontend/desktop-build/.output/public"
   },
   "app": {
     "windows": [
