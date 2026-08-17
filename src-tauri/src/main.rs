@@ -50,6 +50,26 @@ fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
+// Проверяет и (если есть) ставит обновление с endpoint'а из plugins.updater
+// в tauri.conf.json (GitHub Releases latest.json). sidecar-процесс и его
+// GPU-подпроцесс переживают это без проблем — модели/логи в app_data_dir
+// не трогаются установщиком (installMode: currentUser, тот же паттерн, что
+// у обычной установки — не WinAppData-уровневый снос всего).
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
 #[tauri::command]
 async fn get_sidecar_port(state: State<'_, SidecarState>) -> Result<u16, String> {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
@@ -81,6 +101,8 @@ async fn wait_for_health(port: u16) -> bool {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(SidecarState {
             port: Mutex::new(None),
             child: Mutex::new(None),
@@ -246,7 +268,7 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![get_sidecar_port, read_sidecar_log, open_devtools])
+        .invoke_handler(tauri::generate_handler![get_sidecar_port, read_sidecar_log, open_devtools, check_for_update])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

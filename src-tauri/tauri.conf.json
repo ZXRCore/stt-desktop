@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "0xSTT",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "identifier": "sh.zxr.0xstt",
   "build": {
     "frontendDist": "../frontend/desktop-build/.output/public"
@@ -31,6 +31,23 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "certificateThumbprint": "8ECF2244A9369906E8078CCFA9B107D4CF5A8BF8",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2NTEwMDU2RDdGRTAwN0YKUldSL0FQN1hWZ0JSWnVLeUd5cWFiNTlSRnU2SWhJOFJJaWczUS9XR080Szk2MEdSUGc5UWxCWSsK",
+      "endpoints": [
+        "https://github.com/ZXRCore/stt-desktop/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
