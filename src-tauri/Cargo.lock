@@ -4922,6 +4922,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-shell",
  "tokio",
+ "webview2-com",
 ]
 
 [[package]]

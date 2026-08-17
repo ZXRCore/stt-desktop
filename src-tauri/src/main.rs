@@ -37,6 +37,19 @@ fn read_sidecar_log(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn open_devtools(window: tauri::WebviewWindow) {
+    // AreDevToolsEnabled=FALSE (см. setup(), блокирует случайные F12/Ctrl+Shift+I)
+    // блокирует и программный OpenDevToolsWindow() — временно включаем перед
+    // вызовом и возвращаем обратно, иначе только эта команда и открывала бы их.
+    #[cfg(windows)]
+    let _ = window.with_webview(|webview| {
+        unsafe {
+            if let Ok(core) = webview.controller().CoreWebView2() {
+                if let Ok(settings) = core.Settings() {
+                    let _ = settings.SetAreDevToolsEnabled(true);
+                }
+            }
+        }
+    });
     window.open_devtools();
 }
 
@@ -77,6 +90,27 @@ fn main() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // WebView2 по умолчанию (AreDevToolsEnabled=TRUE) сам разрешает
+            // правый клик "Inspect" и клавиатурные шорткаты для DevTools —
+            // это НЕ то же самое, что Tauri's features=["devtools"] (та
+            // включает только программный window.open_devtools(), см. ниже
+            // read_sidecar_log/open_devtools команды). Отключаем нативные
+            // триггеры полностью — DevTools доступны только через нашу
+            // скрытую комбинацию Ctrl+Shift+Z+X+C.
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.with_webview(|webview| {
+                    #[cfg(windows)]
+                    unsafe {
+                        if let Ok(core) = webview.controller().CoreWebView2() {
+                            if let Ok(settings) = core.Settings() {
+                                let _ = settings.SetAreDevToolsEnabled(false);
+                            }
+                        }
+                    }
+                });
+            }
 
             // PyInstaller-бандл — это папка (exe + _internal/), не единый файл,
             // поэтому используем прямой Command::new() по разрешённому пути
